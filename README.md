@@ -6,7 +6,7 @@
 
 原先设计员在Excel里堆叠委托号、客户、检测项、方法与结果，再手工画表结构。痛点：依赖口径难确认、复合键容易漏判、拆表后无法证明无损。上游为委托单和已确认业务规则，本项目承接关系草案登记、函数依赖编辑、3NF合成、验证报告导出，下游为实验数据录入系统的数据库设计人员。
 
-核心实体：关系草案 Relation、函数依赖 Dependency、分解报告 Report。4业务页和独立登录页；管理员另有审计页。业务规则不执行为SQL，属性名是纯数据。
+核心实体：关系草案 Relation、函数依赖 Dependency、分解报告 Report、撤回批次 Withdrawal。4业务页和独立登录页；管理员另有审计页。业务规则不执行为SQL，属性名是纯数据。
 
 ## 快速启动
 
@@ -42,6 +42,12 @@ Python真算，MySQL保存草案/依赖与结果，Redis传递任务，独立wor
 
 复合、循环、空决定项、无依赖均支持。不在任何RHS中的属性强制进入候选键。输入入队时冻结快照，后续修改不会改变已有报告。结果JSON含SHA256，固定输入应有固定输出。失败态包括引用关系外属性、重复/空属性、属性超过10、依赖超过64、队列错误；页面可恢复并重新执行。
 
+## 保密字段撤回
+
+「分解任务」页可按草案与字段发起撤回：`POST /withdrawals {relation_id, field}`。受理时预登记批次与受影响报告清单，命中报告的查看与导出立即停止（列表/详情不再返回快照、结果与错误，导出返回410），其他报告照常可用。后台逐份删除留存文件并清空库内快照与结果，全部完成才置为已撤回；原报告编号保留，详情仍可查撤回状态与批次。
+
+同一草案同一字段重复发起按 `(relation_id, 字段)` 幂等，不会重复登记；清理中断（状态`failed`）后用 `POST /withdrawals/{id}/resume` 或页面「继续清理」恢复原批，重试按成员去重。撤回只作用于该草案下快照含该字段的报告，其他草案中的同名字段不受影响。草稿维度暂停受理含该字段的新报告（409）。worker 在写回前复查状态，撤回先到时丢弃旧结果且不写回。批次状态：pending/purging/failed/withdrawn。
+
 这是小型关系模型设计辅助工具，FD由人工提供，不能从脏数据自动推断业务规则；不连接生产数据或自动执行DDL。精确投影在10属性内有界，仍可能随依赖复杂度增加耗时。单worker串行队列，不带生产任务重试/崩溃续跑。
 
 ## 工程结构
@@ -56,7 +62,7 @@ Python真算，MySQL保存草案/依赖与结果，Redis传递任务，独立wor
 
 目录：`frontend/src/{api,stores,types,components/common,hooks,pages,router,utils,constants}`；`backend/src/{routes,controllers,services,models,schemas,middlewares,utils,constants,config}`；`backend/scripts/seed_demo.py`；`backend/migrations/001_initial.sql`。每核心实体贯穿模型/schema/service/route/API/store/page。组件table/badge/frame复用，hooks/session/feedback和utils/forms/html共用；request_id/errors双后端中间件。
 
-枚举：角色admin/operator/viewer、任务queued/running/completed/failed；前后端定义位于 `backend/src/constants/enums.py` 和 `frontend/src/constants/enums.js`，security/reports、frame/badge消费；worker持久化状态。
+枚举：角色admin/operator/viewer、任务queued/running/completed/failed/withdrawing/withdrawn、撤回批次pending/purging/failed/withdrawn；前后端定义位于 `backend/src/constants/enums.py` 和 `frontend/src/constants/enums.js`，security/reports、frame/badge消费；worker持久化状态。
 
 环境变量见.env.example：COMPOSE_PROJECT_NAME、FRONTEND_PORT/BACKEND_PORT/DB_PORT、DB_PASSWORD、JWT_SECRET、SEED_DEMO。默认密码仅本地演示，JWT8小时。seed按自然键只补缺失关系及初始依赖，不覆盖用户修改。schema由SQLAlchemy metadata.create_all初始化，无在线迁移引擎。
 

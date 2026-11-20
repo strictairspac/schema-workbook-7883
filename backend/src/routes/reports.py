@@ -1,4 +1,4 @@
-from fastapi import APIRouter,Depends
+from fastapi import APIRouter,Depends,HTTPException
 from src.config.database import db_session
 from src.utils.security import current,writer
 from src.schemas.report import ReportInput
@@ -14,4 +14,6 @@ import json
 def detail(ident:int,db=Depends(db_session),user=Depends(current)):return service.detail(db,ident)
 @router.get('/reports/{ident}/export')
 def export(ident:int,db=Depends(db_session),user=Depends(current)):
-    return Response(json.dumps(service.detail(db,ident),ensure_ascii=False,indent=2),media_type='application/json',headers={'Content-Disposition':f'attachment; filename="report-{ident}.json"'})
+    item=service.detail(db,ident)
+    if item['status'] in ('withdrawing','withdrawn'):raise HTTPException(410,'该报告已发起撤回，查看与下载均已停止')
+    return Response(json.dumps(item,ensure_ascii=False,indent=2),media_type='application/json',headers={'Content-Disposition':f'attachment; filename="report-{ident}.json"'})
