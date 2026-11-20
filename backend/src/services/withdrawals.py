@@ -130,7 +130,10 @@ def create(db,data,user):
     if not relation:raise HTTPException(404,'关系不存在')
     field=_norm(data.field)
     if not field:raise HTTPException(422,'请指定需要撤回的保密字段')
-    if not _field_known(db,relation,field):raise HTTPException(422,f'草案 {relation.code} 中不存在字段「{field}」，未发起撤回')
+    batch_key=f'{relation.id}:{field.casefold()}'
+    existing=db.scalar(select(Withdrawal).where(Withdrawal.batch_key==batch_key))
+    if not existing and not _field_known(db,relation,field):
+        raise HTTPException(422,f'草案 {relation.code} 中不存在字段「{field}」，未发起撤回')
     withdrawal=_safe_register(db,relation,field,user)
     return _summary(db,_purge(db,withdrawal))
 
